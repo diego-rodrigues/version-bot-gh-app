@@ -1,6 +1,6 @@
 # version-bot-gh-app
 
-> A GitHub App built with [Probot](https://github.com/probot/probot) that checks for version changes in pom files
+> A GitHub App built with [Probot](https://github.com/probot/probot) that checks for version changes in pom files, including usage of SNAPSHOT versions.
 
 ## Setup
 
