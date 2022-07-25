@@ -18,22 +18,38 @@ module.exports = (app) => {
   });
 
   app.on(["pull_request.opened", "pull_request.reopened", "pull_request.edited"], async (context) => {
-    console.log(context.payload)
     const owner = context.payload.repository.owner.login
     const repo = context.payload.repository.name
     const number = context.payload.number
     const body = "hello"
     const sha = context.payload.pull_request.head.sha
-    console.log(sha)
-    // console.log({owner, repo, number})
-    // console.log("======================\n\n")
     const files = await context.octokit.rest.pulls.listFiles({
       owner: owner, 
       repo: repo, 
       pull_number: number
     })
+
+    // looking for snapshot versions
+    for (let file of files.data) {
+      if (file.filename == "pom.xml") {
+        var snapshotLines = getSnapshotLines(file.patch)
+      }
+    }
+
+    var snapshotCommentTemplate = {
+      owner: owner, 
+      repo: repo,
+      pull_number: number,
+      body: "",
+      path: "pom.xml",
+      commit_id: sha,
+      position: position,
+    }
+
+    publishComments(context, snapshotCommentTemplate, snapshotLines)
+
     // console.log(files)
-    for (const file of files.data) {
+    for (let file of files.data) {
       if (file.filename == "pom.xml") {
         var versionAndLine = getVersionAndLine(file.patch);
         console.log(versionAndLine)
@@ -54,9 +70,6 @@ module.exports = (app) => {
     } else {
       var strcomment = "Your version [`" + version + "`] is good enough for us. 💪 💯"
     }
-    
-    console.log(strcomment)
-    console.log("\n\n-------------------------------------\n\n")
 
     const comment = {
       owner: owner, 
@@ -68,19 +81,8 @@ module.exports = (app) => {
       position: position,
     };
   
-
-    console.log(comment)
-    console.log("\n\n======================================\n\n")
     return context.octokit.pulls.createReviewComment(comment);
 
-
-    // const comment = context.issue({
-    //   body: strcomment
-    // })
-    // // console.log("Comment is: ")
-    // console.log(comment)
-    // console.log("======================\n\n")
-    // return context.octokit.issues.createComment(comment);
   });
 
   // For more information on building apps:
@@ -89,6 +91,60 @@ module.exports = (app) => {
   // To get your app running against GitHub, see:
   // https://probot.github.io/docs/development/
 };
+
+function publishComments(context, snapshotCommentTemplate, snapshotLines) {
+  if (snapshotLines.length == 0) {
+    const comment = context.issue({
+      body: "All dependencies are good! 💪 💯"
+    })
+    context.octokit.issues.createComment(comment);
+  } else {
+    for (let line in snapshotLines) {
+      snapshotCommentTemplate.position = snapshotLines[line]
+      snapshotCommentTemplate.body = "Hey " + snapshotCommentTemplate.owner +
+        " 👋, thanks for the PR !!! You are awesome. \n" +
+        "Please remove the SNAPSHOT tag from the version 🙏🙏🙏."
+
+      context.octokit.pulls.createReviewComment(snapshotCommentTemplate)
+    }
+  }
+}
+
+function hasSnapshotVersion(line) {
+  var patternRegex = /<version>(.*?)<\/version>/g
+  var matches = line.matchAll(patternRegex)
+  let next = matches.next()
+  if (!next.done) {
+    version = next.value[1]
+    return version.includes("SNAPSHOT")
+  }
+  return false
+}
+
+function getSnapshotLines(diff) {
+  const lines = diff.split("\n")
+  var i = 1
+  var snapshotLines = []
+  
+  while (i < lines.length) {
+    let line = lines[i]
+    if (hasSnapshotVersion(line)) {
+      console.log("Uh oh, found a snapshot - line " + i)
+      snapshotLines.push(i)
+    }
+    i++
+  }
+  return snapshotLines
+}
+
+// make a general comment
+// const comment = context.issue({
+//   body: strcomment
+// })
+// // console.log("Comment is: ")
+// console.log(comment)
+// console.log("======================\n\n")
+// return context.octokit.issues.createComment(comment);
 
 function getVersionAndLine(diff) {
   var patternRegex = /<version>(.*?)<\/version>/g;
